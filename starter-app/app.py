@@ -18,7 +18,8 @@ Usage:
 
 import json
 import sys
-from datetime import date, datetime
+from calendar import monthrange
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
 import click
@@ -30,6 +31,7 @@ TASKS_FILE = Path(__file__).resolve().with_name("tasks.json")
 
 PRIORITIES = ("low", "medium", "high")
 PRIORITY_COLOURS = {"low": "cyan", "medium": "yellow", "high": "red"}
+REPEAT_INTERVALS = ("daily", "weekly", "monthly")
 
 console = Console()
 
@@ -147,6 +149,31 @@ def find_task(tasks: list[dict], task_id: int) -> dict | None:
     return next((t for t in tasks if t["id"] == task_id), None)
 
 
+def next_due_date(due: str | None, repeat: str) -> str | None:
+    """Calculate the next due date for a recurring task.
+
+    Args:
+        due: The current due date in ISO 8601 format.
+        repeat: The recurrence interval.
+
+    Returns:
+        The next due date, or None when the task has no due date.
+    """
+    if due is None:
+        return None
+
+    current_due = date.fromisoformat(due)
+    if repeat == "daily":
+        return (current_due + timedelta(days=1)).isoformat()
+    if repeat == "weekly":
+        return (current_due + timedelta(weeks=1)).isoformat()
+
+    next_month = current_due.month % 12 + 1
+    next_year = current_due.year + (current_due.month // 12)
+    next_day = min(current_due.day, monthrange(next_year, next_month)[1])
+    return date(next_year, next_month, next_day).isoformat()
+
+
 # ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
@@ -181,7 +208,20 @@ def cli() -> None:
     metavar="TAG",
     help="Tag to attach (may be repeated).",
 )
-def add(name: str, priority: str, description: str, due: str | None, tag: tuple[str, ...]) -> None:
+@click.option(
+    "--repeat",
+    type=click.Choice(REPEAT_INTERVALS),
+    default=None,
+    help="Repeat interval.",
+)
+def add(
+    name: str,
+    priority: str,
+    description: str,
+    due: str | None,
+    tag: tuple[str, ...],
+    repeat: str | None,
+) -> None:
     """Add a new task.
 
     NAME is the title of the task to add.
@@ -209,6 +249,7 @@ def add(name: str, priority: str, description: str, due: str | None, tag: tuple[
         "priority": priority,
         "tags": list(tag),
         "due_date": due,
+        "repeat": repeat,
         "done": False,
         "created_at": datetime.now().isoformat(timespec="seconds"),
     }
@@ -321,8 +362,26 @@ def complete(task_id: int) -> None:
         return
 
     task["done"] = True
+    repeat = task.get("repeat")
+    next_task = None
+    if repeat in REPEAT_INTERVALS:
+        next_task = {
+            **task,
+            "id": next_id(tasks),
+            "tags": list(task.get("tags", [])),
+            "due_date": next_due_date(task.get("due_date"), repeat),
+            "done": False,
+            "created_at": datetime.now().isoformat(timespec="seconds"),
+        }
+        tasks.append(next_task)
+
     save_tasks(tasks)
     console.print(f"[green]Task #{task_id} marked as complete.[/green]")
+    if next_task is not None:
+        console.print(
+            f"[green]Created next recurring task #[bold]{next_task['id']}[/bold]"
+            f" due {next_task['due_date'] or '—'}.[/green]"
+        )
 
 
 @cli.command()

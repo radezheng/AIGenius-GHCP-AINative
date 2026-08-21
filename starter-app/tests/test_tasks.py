@@ -110,6 +110,14 @@ class TestAddCommand:
         assert task["due_date"] == "2099-12-31"
         assert task["tags"] == ["work", "devops"]
 
+    def test_add_with_repeat(self, runner: CliRunner) -> None:
+        result = runner.invoke(
+            cli,
+            ["add", "Water plants", "--due", "2099-01-01", "--repeat", "weekly"],
+        )
+        assert result.exit_code == 0
+        assert load_tasks()[0]["repeat"] == "weekly"
+
     def test_add_empty_name_fails(self, runner: CliRunner) -> None:
         result = runner.invoke(cli, ["add", "   "])
         assert result.exit_code != 0
@@ -193,6 +201,51 @@ class TestCompleteCommand:
     def test_complete_nonexistent_id_fails(self, runner: CliRunner, sample_tasks: list[dict]) -> None:
         result = runner.invoke(cli, ["complete", "999"])
         assert result.exit_code != 0
+
+    @pytest.mark.parametrize(
+        ("repeat", "due_date", "next_due_date"),
+        [
+            ("daily", "2026-01-31", "2026-02-01"),
+            ("weekly", "2026-01-31", "2026-02-07"),
+            ("monthly", "2026-01-31", "2026-02-28"),
+        ],
+    )
+    def test_complete_recurring_task_creates_next_task(
+        self,
+        runner: CliRunner,
+        repeat: str,
+        due_date: str,
+        next_due_date: str,
+    ) -> None:
+        save_tasks(
+            [
+                {
+                    "id": 1,
+                    "name": "Recurring task",
+                    "description": "Repeat me",
+                    "priority": "high",
+                    "tags": ["routine"],
+                    "due_date": due_date,
+                    "repeat": repeat,
+                    "done": False,
+                    "created_at": "2026-01-01T09:00:00",
+                }
+            ]
+        )
+
+        result = runner.invoke(cli, ["complete", "1"])
+
+        assert result.exit_code == 0
+        completed_task, next_task = load_tasks()
+        assert completed_task["done"] is True
+        assert next_task["id"] == 2
+        assert next_task["name"] == completed_task["name"]
+        assert next_task["description"] == completed_task["description"]
+        assert next_task["priority"] == completed_task["priority"]
+        assert next_task["tags"] == completed_task["tags"]
+        assert next_task["repeat"] == repeat
+        assert next_task["due_date"] == next_due_date
+        assert next_task["done"] is False
 
 
 class TestEditCommand:
