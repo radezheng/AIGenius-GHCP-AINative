@@ -262,3 +262,131 @@ class TestStatsCommand:
         result = runner.invoke(cli, ["stats"])
         assert result.exit_code == 0
         assert "3" in result.output  # total
+
+
+class TestSearchCommand:
+    def test_search_matches_chinese_keyword(self, runner: CliRunner, isolated_tasks_file: Path) -> None:
+        tasks = [
+            {
+                "id": 1,
+                "name": "学习Python",
+                "description": "",
+                "priority": "medium",
+                "tags": [],
+                "due_date": None,
+                "done": False,
+                "created_at": "2025-01-01T09:00:00",
+            }
+        ]
+        isolated_tasks_file.write_text(json.dumps(tasks), encoding="utf-8")
+
+        result = runner.invoke(cli, ["search", "学习"])
+        assert result.exit_code == 0
+        assert "学习Python" in result.output
+
+    def test_search_matches_description(self, runner: CliRunner, sample_tasks: list[dict]) -> None:
+        result = runner.invoke(cli, ["search", "pipeline"])
+        assert result.exit_code == 0
+        assert "Deploy to production" in result.output
+
+    def test_search_is_case_insensitive_for_english(
+        self, runner: CliRunner, sample_tasks: list[dict]
+    ) -> None:
+        result = runner.invoke(cli, ["search", "DEPLOY"])
+        assert result.exit_code == 0
+        assert "Deploy to production" in result.output
+
+    def test_search_sorts_by_priority_with_stable_order(
+        self, runner: CliRunner, isolated_tasks_file: Path
+    ) -> None:
+        tasks = [
+            {
+                "id": 1,
+                "name": "alpha-low",
+                "description": "",
+                "priority": "low",
+                "tags": [],
+                "due_date": None,
+                "done": False,
+                "created_at": "2025-01-01T09:00:00",
+            },
+            {
+                "id": 2,
+                "name": "alpha-high-1",
+                "description": "",
+                "priority": "high",
+                "tags": [],
+                "due_date": None,
+                "done": False,
+                "created_at": "2025-01-01T10:00:00",
+            },
+            {
+                "id": 3,
+                "name": "alpha-medium",
+                "description": "",
+                "priority": "medium",
+                "tags": [],
+                "due_date": None,
+                "done": False,
+                "created_at": "2025-01-01T11:00:00",
+            },
+            {
+                "id": 4,
+                "name": "alpha-high-2",
+                "description": "",
+                "priority": "high",
+                "tags": [],
+                "due_date": None,
+                "done": False,
+                "created_at": "2025-01-01T12:00:00",
+            },
+        ]
+        isolated_tasks_file.write_text(json.dumps(tasks), encoding="utf-8")
+
+        result = runner.invoke(cli, ["search", "alpha"])
+        assert result.exit_code == 0
+        output = result.output
+        assert output.index("alpha-high-1") < output.index("alpha-high-2")
+        assert output.index("alpha-high-2") < output.index("alpha-medium")
+        assert output.index("alpha-medium") < output.index("alpha-low")
+
+    def test_search_blank_keyword_shows_friendly_error(self, runner: CliRunner) -> None:
+        result = runner.invoke(cli, ["search", "   "])
+        assert result.exit_code != 0
+        assert "关键词不能为空" in result.output
+
+    def test_search_no_results_shows_message(self, runner: CliRunner, sample_tasks: list[dict]) -> None:
+        result = runner.invoke(cli, ["search", "不存在的关键词"])
+        assert result.exit_code == 0
+        assert "未找到匹配的任务" in result.output
+
+    def test_search_handles_null_or_missing_description(
+        self, runner: CliRunner, isolated_tasks_file: Path
+    ) -> None:
+        tasks = [
+            {
+                "id": 1,
+                "name": "null description task",
+                "description": None,
+                "priority": "medium",
+                "tags": [],
+                "due_date": None,
+                "done": False,
+                "created_at": "2025-01-01T09:00:00",
+            },
+            {
+                "id": 2,
+                "name": "missing description task",
+                "priority": "low",
+                "tags": [],
+                "due_date": None,
+                "done": False,
+                "created_at": "2025-01-01T10:00:00",
+            },
+        ]
+        isolated_tasks_file.write_text(json.dumps(tasks), encoding="utf-8")
+
+        result = runner.invoke(cli, ["search", "task"])
+        assert result.exit_code == 0
+        assert "null description task" in result.output
+        assert "missing description task" in result.output
