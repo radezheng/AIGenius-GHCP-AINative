@@ -7,7 +7,19 @@ from pathlib import Path
 import pytest
 from click.testing import CliRunner
 
-from app import add, cli, complete, delete, edit, is_overdue, list_tasks, load_tasks, save_tasks, stats
+from app import (
+    add,
+    cli,
+    complete,
+    delete,
+    edit,
+    is_overdue,
+    list_tasks,
+    load_tasks,
+    save_tasks,
+    search_tasks,
+    stats,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -176,6 +188,66 @@ class TestListCommand:
         result = runner.invoke(cli, ["list", "--tag", "nonexistent"])
         assert result.exit_code == 0
         assert "No tasks match" in result.output
+
+
+class TestSearchCommand:
+    def test_search_matches_chinese_names_and_sorts_priorities(
+        self, runner: CliRunner, isolated_tasks_file: Path
+    ) -> None:
+        tasks = [
+            {"id": 1, "name": "准备会议", "description": "", "priority": "low"},
+            {"id": 2, "name": "会议纪要", "description": "", "priority": "high"},
+            {"id": 3, "name": "客户会议", "description": "", "priority": "high"},
+            {"id": 4, "name": "无关任务", "description": "", "priority": "medium"},
+        ]
+        isolated_tasks_file.write_text(json.dumps(tasks), encoding="utf-8")
+
+        result = runner.invoke(cli, ["search", "会议"])
+
+        assert result.exit_code == 0
+        assert result.output.index("会议纪要") < result.output.index("客户会议")
+        assert result.output.index("客户会议") < result.output.index("准备会议")
+        assert "无关任务" not in result.output
+
+    def test_search_matches_description_case_insensitively_and_handles_null(
+        self, runner: CliRunner, isolated_tasks_file: Path
+    ) -> None:
+        tasks = [
+            {"id": 1, "name": "Release", "description": "Deploy to Production", "priority": "medium"},
+            {"id": 2, "name": "Other", "description": None, "priority": "high"},
+        ]
+        isolated_tasks_file.write_text(json.dumps(tasks), encoding="utf-8")
+
+        result = runner.invoke(cli, ["search", "production"])
+
+        assert result.exit_code == 0
+        assert "Release" in result.output
+        assert "Other" not in result.output
+
+    def test_search_returns_each_task_once_when_both_fields_match(self) -> None:
+        task = {"id": 1, "name": "Deploy", "description": "deploy now", "priority": "high"}
+
+        assert search_tasks([task], "DEPLOY") == [task]
+
+    def test_search_blank_keyword_fails(self, runner: CliRunner) -> None:
+        result = runner.invoke(cli, ["search", "   "])
+
+        assert result.exit_code != 0
+        assert "关键词不能为空" in result.output
+
+    def test_search_no_results_shows_message(self, runner: CliRunner, sample_tasks: list[dict]) -> None:
+        result = runner.invoke(cli, ["search", "不存在"])
+
+        assert result.exit_code == 0
+        assert "未找到" in result.output
+        assert result.exception is None
+
+    def test_search_help_includes_argument_and_examples(self, runner: CliRunner) -> None:
+        result = runner.invoke(cli, ["search", "--help"])
+
+        assert result.exit_code == 0
+        assert "KEYWORD" in result.output
+        assert "Examples:" in result.output
 
 
 class TestCompleteCommand:
