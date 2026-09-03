@@ -7,7 +7,19 @@ from pathlib import Path
 import pytest
 from click.testing import CliRunner
 
-from app import add, cli, complete, delete, edit, is_overdue, list_tasks, load_tasks, save_tasks, stats
+from app import (
+    add,
+    cli,
+    complete,
+    delete,
+    edit,
+    is_overdue,
+    list_tasks,
+    load_tasks,
+    save_tasks,
+    search_tasks,
+    stats,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -176,6 +188,68 @@ class TestListCommand:
         result = runner.invoke(cli, ["list", "--tag", "nonexistent"])
         assert result.exit_code == 0
         assert "No tasks match" in result.output
+
+
+class TestSearchCommand:
+    def test_search_matches_chinese_name(self, runner: CliRunner) -> None:
+        result = runner.invoke(cli, ["add", "准备发布", "--description", "部署到生产环境"])
+        assert result.exit_code == 0
+
+        result = runner.invoke(cli, ["search", "发布"])
+        assert result.exit_code == 0
+        assert "准备发布" in result.output
+
+    def test_search_matches_description_and_ignores_case(self, runner: CliRunner) -> None:
+        result = runner.invoke(cli, ["add", "Review", "--description", "Deploy the API"])
+        assert result.exit_code == 0
+
+        result = runner.invoke(cli, ["search", "api"])
+        assert result.exit_code == 0
+        assert "Review" in result.output
+
+    def test_search_orders_priority_stably(self) -> None:
+        tasks = [
+            {"id": 1, "name": "match low", "description": "", "priority": "low"},
+            {"id": 2, "name": "match high first", "description": "", "priority": "high"},
+            {"id": 3, "name": "match medium", "description": "", "priority": "medium"},
+            {"id": 4, "name": "match high second", "description": "", "priority": "high"},
+        ]
+        assert [task["id"] for task in search_tasks(tasks, "MATCH")] == [2, 4, 3, 1]
+
+    def test_search_returns_a_task_only_once_when_both_fields_match(self) -> None:
+        tasks = [{"id": 1, "name": "Match", "description": "another match", "priority": "medium"}]
+        assert search_tasks(tasks, "match") == tasks
+
+    def test_search_handles_missing_or_null_description(
+        self, runner: CliRunner, isolated_tasks_file: Path
+    ) -> None:
+        tasks = [
+            {"id": 1, "name": "No description", "description": None, "priority": "medium"},
+            {"id": 2, "name": "Missing description", "priority": "medium"},
+        ]
+        isolated_tasks_file.write_text(json.dumps(tasks), encoding="utf-8")
+
+        result = runner.invoke(cli, ["search", "description"])
+        assert result.exit_code == 0
+        assert "No description" in result.output
+        assert "Missing description" in result.output
+
+    def test_search_rejects_blank_keyword(self, runner: CliRunner) -> None:
+        result = runner.invoke(cli, ["search", "   "])
+        assert result.exit_code != 0
+        assert "搜索关键词不能为空" in result.output
+
+    def test_search_reports_no_results(self, runner: CliRunner, sample_tasks: list[dict]) -> None:
+        result = runner.invoke(cli, ["search", "不存在"])
+        assert result.exit_code == 0
+        assert "没有找到匹配的任务" in result.output
+        assert "Traceback" not in result.output
+
+    def test_search_help_includes_argument_and_example(self, runner: CliRunner) -> None:
+        result = runner.invoke(cli, ["search", "--help"])
+        assert result.exit_code == 0
+        assert "KEYWORD" in result.output
+        assert 'python app.py search "关键词"' in result.output
 
 
 class TestCompleteCommand:

@@ -10,6 +10,7 @@ Usage:
     python app.py list
     python app.py list --status pending --priority high
     python app.py list --overdue
+    python app.py search "release"
     python app.py complete 1
     python app.py edit 1 --priority low --due 2026-01-15
     python app.py delete 1
@@ -147,6 +148,73 @@ def find_task(tasks: list[dict], task_id: int) -> dict | None:
     return next((t for t in tasks if t["id"] == task_id), None)
 
 
+def search_tasks(tasks: list[dict], keyword: str) -> list[dict]:
+    """Find tasks whose name or description contains a keyword.
+
+    Args:
+        tasks: The tasks to search.
+        keyword: The normalized keyword to find.
+
+    Returns:
+        Matching tasks ordered by descending priority, preserving original
+        order among tasks with the same priority.
+    """
+    normalized_keyword = keyword.casefold()
+    matching_tasks = [
+        task
+        for task in tasks
+        if normalized_keyword in str(task.get("name") or "").casefold()
+        or normalized_keyword in str(task.get("description") or "").casefold()
+    ]
+    priority_order = {"high": 0, "medium": 1, "low": 2}
+    return sorted(
+        matching_tasks,
+        key=lambda task: priority_order.get(task.get("priority"), len(priority_order)),
+    )
+
+
+def print_tasks(tasks: list[dict]) -> None:
+    """Print tasks in the standard Rich table format.
+
+    Args:
+        tasks: The tasks to display.
+    """
+    table = Table(show_header=True, header_style="bold blue", box=None, pad_edge=False)
+    table.add_column("ID", style="dim", width=4, justify="right")
+    table.add_column("Task", min_width=30)
+    table.add_column("Priority", width=8)
+    table.add_column("Due", width=12)
+    table.add_column("Tags", min_width=10)
+    table.add_column("Status", width=9)
+
+    for task in tasks:
+        task_name = Text(str(task["name"]))
+        if task.get("done"):
+            task_name.stylize("strike dim")
+
+        prio = task.get("priority", "medium")
+        prio_colour = PRIORITY_COLOURS.get(prio, "white")
+        priority_text = Text(prio, style=prio_colour)
+
+        tags_text = Text(", ".join(task.get("tags", [])) or "—", style="dim")
+        status_text = (
+            Text("✓ Done", style="green") if task.get("done") else Text("Pending", style="yellow")
+        )
+        if is_overdue(task):
+            status_text = Text("Overdue", style="bold red")
+
+        table.add_row(
+            str(task["id"]),
+            task_name,
+            priority_text,
+            format_due(task),
+            tags_text,
+            status_text,
+        )
+
+    console.print(table)
+
+
 # ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
@@ -266,40 +334,27 @@ def list_tasks(status: str, priority: str | None, tag: str | None, overdue: bool
         console.print("[yellow]No tasks match your filters.[/yellow]")
         return
 
-    table = Table(show_header=True, header_style="bold blue", box=None, pad_edge=False)
-    table.add_column("ID", style="dim", width=4, justify="right")
-    table.add_column("Task", min_width=30)
-    table.add_column("Priority", width=8)
-    table.add_column("Due", width=12)
-    table.add_column("Tags", min_width=10)
-    table.add_column("Status", width=9)
+    print_tasks(tasks)
 
-    for task in tasks:
-        task_name = Text(str(task["name"]))
-        if task.get("done"):
-            task_name.stylize("strike dim")
 
-        prio = task.get("priority", "medium")
-        prio_colour = PRIORITY_COLOURS.get(prio, "white")
-        priority_text = Text(prio, style=prio_colour)
+@cli.command()
+@click.argument("keyword", metavar="KEYWORD")
+def search(keyword: str) -> None:
+    """Search task names and descriptions for KEYWORD.
 
-        tags_text = Text(", ".join(task.get("tags", [])) or "—", style="dim")
-        status_text = (
-            Text("✓ Done", style="green") if task.get("done") else Text("Pending", style="yellow")
-        )
-        if is_overdue(task):
-            status_text = Text("Overdue", style="bold red")
+    Example:
+        python app.py search "关键词"
+    """
+    keyword = keyword.strip()
+    if not keyword:
+        raise click.UsageError("搜索关键词不能为空。")
 
-        table.add_row(
-            str(task["id"]),
-            task_name,
-            priority_text,
-            format_due(task),
-            tags_text,
-            status_text,
-        )
+    matching_tasks = search_tasks(load_tasks(), keyword)
+    if not matching_tasks:
+        console.print("[yellow]没有找到匹配的任务。[/yellow]")
+        return
 
-    console.print(table)
+    print_tasks(matching_tasks)
 
 
 @cli.command()
