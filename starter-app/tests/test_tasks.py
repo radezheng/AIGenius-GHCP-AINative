@@ -178,6 +178,85 @@ class TestListCommand:
         assert "No tasks match" in result.output
 
 
+class TestSearchCommand:
+    def test_search_matches_chinese_name(self, runner: CliRunner, isolated_tasks_file: Path) -> None:
+        isolated_tasks_file.write_text(
+            json.dumps(
+                [
+                    {"id": 1, "name": "准备会议", "description": "", "priority": "medium"},
+                    {"id": 2, "name": "Buy milk", "description": "", "priority": "low"},
+                ]
+            ),
+            encoding="utf-8",
+        )
+
+        result = runner.invoke(cli, ["search", "会议"])
+
+        assert result.exit_code == 0
+        assert "准备会议" in result.output
+        assert "Buy milk" not in result.output
+
+    def test_search_matches_description_case_insensitively(
+        self, runner: CliRunner, isolated_tasks_file: Path
+    ) -> None:
+        isolated_tasks_file.write_text(
+            json.dumps(
+                [
+                    {"id": 1, "name": "Task", "description": "Deploy API", "priority": "medium"},
+                    {"id": 2, "name": "Other", "description": None, "priority": "low"},
+                ]
+            ),
+            encoding="utf-8",
+        )
+
+        result = runner.invoke(cli, ["search", "api"])
+
+        assert result.exit_code == 0
+        assert "Task" in result.output
+        assert "Other" not in result.output
+
+    def test_search_sorts_by_priority_stably(
+        self, runner: CliRunner, isolated_tasks_file: Path
+    ) -> None:
+        isolated_tasks_file.write_text(
+            json.dumps(
+                [
+                    {"id": 1, "name": "find low", "description": "", "priority": "low"},
+                    {"id": 2, "name": "find high first", "description": "", "priority": "high"},
+                    {"id": 3, "name": "find medium", "description": "", "priority": "medium"},
+                    {"id": 4, "name": "find high second", "description": "", "priority": "high"},
+                ]
+            ),
+            encoding="utf-8",
+        )
+
+        result = runner.invoke(cli, ["search", "find"])
+
+        assert result.exit_code == 0
+        assert result.output.index("find high first") < result.output.index("find high second")
+        assert result.output.index("find high second") < result.output.index("find medium")
+        assert result.output.index("find medium") < result.output.index("find low")
+
+    def test_search_empty_keyword_fails(self, runner: CliRunner) -> None:
+        result = runner.invoke(cli, ["search", "   "])
+
+        assert result.exit_code != 0
+        assert "搜索关键词不能为空" in result.output
+        assert result.exception is not None
+
+    def test_search_no_match_message(self, runner: CliRunner, sample_tasks: list[dict]) -> None:
+        result = runner.invoke(cli, ["search", "nonexistent"])
+
+        assert result.exit_code == 0
+        assert "未找到" in result.output
+
+    def test_search_help_includes_example(self, runner: CliRunner) -> None:
+        result = runner.invoke(cli, ["search", "--help"])
+
+        assert result.exit_code == 0
+        assert 'python app.py search "关键词"' in result.output
+
+
 class TestCompleteCommand:
     def test_complete_marks_done(self, runner: CliRunner, sample_tasks: list[dict]) -> None:
         result = runner.invoke(cli, ["complete", "1"])
