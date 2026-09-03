@@ -178,6 +178,82 @@ class TestListCommand:
         assert "No tasks match" in result.output
 
 
+class TestSearchCommand:
+    def test_search_matches_chinese_keyword_in_name(self, runner: CliRunner) -> None:
+        save_tasks(
+            [
+                {"id": 1, "name": "部署到生产", "description": "", "priority": "medium", "tags": [], "due_date": None, "done": False, "created_at": "2025-01-01T09:00:00"},
+                {"id": 2, "name": "Write docs", "description": "", "priority": "low", "tags": [], "due_date": None, "done": False, "created_at": "2025-01-01T09:10:00"},
+            ]
+        )
+        result = runner.invoke(cli, ["search", "部署"])
+        assert result.exit_code == 0
+        assert "部署到生产" in result.output
+        assert "Write docs" not in result.output
+
+    def test_search_matches_description(self, runner: CliRunner) -> None:
+        save_tasks(
+            [
+                {"id": 1, "name": "Task A", "description": "Run release pipeline", "priority": "medium", "tags": [], "due_date": None, "done": False, "created_at": "2025-01-01T09:00:00"},
+                {"id": 2, "name": "Task B", "description": "No match here", "priority": "low", "tags": [], "due_date": None, "done": False, "created_at": "2025-01-01T09:10:00"},
+            ]
+        )
+        result = runner.invoke(cli, ["search", "pipeline"])
+        assert result.exit_code == 0
+        assert "Task A" in result.output
+        assert "Task B" not in result.output
+
+    def test_search_english_is_case_insensitive(self, runner: CliRunner) -> None:
+        save_tasks(
+            [
+                {"id": 1, "name": "Deploy Service", "description": "", "priority": "medium", "tags": [], "due_date": None, "done": False, "created_at": "2025-01-01T09:00:00"},
+            ]
+        )
+        result = runner.invoke(cli, ["search", "deploy"])
+        assert result.exit_code == 0
+        assert "Deploy Service" in result.output
+
+    def test_search_results_sorted_by_priority_stably(self, runner: CliRunner) -> None:
+        save_tasks(
+            [
+                {"id": 1, "name": "部署-低优先级", "description": "", "priority": "low", "tags": [], "due_date": None, "done": False, "created_at": "2025-01-01T09:00:00"},
+                {"id": 2, "name": "部署-高优先级-A", "description": "", "priority": "high", "tags": [], "due_date": None, "done": False, "created_at": "2025-01-01T09:10:00"},
+                {"id": 3, "name": "部署-中优先级", "description": "", "priority": "medium", "tags": [], "due_date": None, "done": False, "created_at": "2025-01-01T09:20:00"},
+                {"id": 4, "name": "部署-高优先级-B", "description": "", "priority": "high", "tags": [], "due_date": None, "done": False, "created_at": "2025-01-01T09:30:00"},
+            ]
+        )
+        result = runner.invoke(cli, ["search", "部署"])
+        assert result.exit_code == 0
+        assert result.output.index("部署-高优先级-A") < result.output.index("部署-高优先级-B")
+        assert result.output.index("部署-高优先级-B") < result.output.index("部署-中优先级")
+        assert result.output.index("部署-中优先级") < result.output.index("部署-低优先级")
+
+    def test_search_handles_null_description(self, runner: CliRunner) -> None:
+        save_tasks(
+            [
+                {"id": 1, "name": "任务一", "description": None, "priority": "medium", "tags": [], "due_date": None, "done": False, "created_at": "2025-01-01T09:00:00"},
+            ]
+        )
+        result = runner.invoke(cli, ["search", "任务"])
+        assert result.exit_code == 0
+        assert "任务一" in result.output
+
+    def test_search_empty_keyword_fails_with_friendly_message(self, runner: CliRunner) -> None:
+        result = runner.invoke(cli, ["search", "   "])
+        assert result.exit_code != 0
+        assert "关键词不能为空" in result.output
+
+    def test_search_no_result_message(self, runner: CliRunner) -> None:
+        save_tasks(
+            [
+                {"id": 1, "name": "Task A", "description": "", "priority": "medium", "tags": [], "due_date": None, "done": False, "created_at": "2025-01-01T09:00:00"},
+            ]
+        )
+        result = runner.invoke(cli, ["search", "missing"])
+        assert result.exit_code == 0
+        assert "未找到匹配任务" in result.output
+
+
 class TestCompleteCommand:
     def test_complete_marks_done(self, runner: CliRunner, sample_tasks: list[dict]) -> None:
         result = runner.invoke(cli, ["complete", "1"])
