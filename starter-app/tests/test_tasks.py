@@ -178,6 +178,64 @@ class TestListCommand:
         assert "No tasks match" in result.output
 
 
+class TestSearchCommand:
+    def test_search_matches_chinese_name_and_description(
+        self, runner: CliRunner, isolated_tasks_file: Path
+    ) -> None:
+        isolated_tasks_file.write_text(
+            json.dumps(
+                [
+                    {"id": 1, "name": "准备会议", "description": "", "priority": "low"},
+                    {"id": 2, "name": "Review", "description": "准备会议材料", "priority": "high"},
+                    {"id": 3, "name": "Other", "description": None, "priority": "medium"},
+                ]
+            ),
+            encoding="utf-8",
+        )
+
+        result = runner.invoke(cli, ["search", "会议"])
+
+        assert result.exit_code == 0
+        assert "准备会议" in result.output
+        assert "Review" in result.output
+        assert "Other" not in result.output
+
+    def test_search_is_case_insensitive_and_sorts_by_priority(
+        self, runner: CliRunner, isolated_tasks_file: Path
+    ) -> None:
+        isolated_tasks_file.write_text(
+            json.dumps(
+                [
+                    {"id": 1, "name": "Deploy one", "description": "", "priority": "low"},
+                    {"id": 2, "name": "DEPLOY two", "description": "", "priority": "high"},
+                    {"id": 3, "name": "deploy three", "description": "", "priority": "medium"},
+                    {"id": 4, "name": "Deploy four", "description": "", "priority": "high"},
+                ]
+            ),
+            encoding="utf-8",
+        )
+
+        result = runner.invoke(cli, ["search", "dEpLoY"])
+
+        assert result.exit_code == 0
+        assert result.output.index("DEPLOY two") < result.output.index("Deploy four")
+        assert result.output.index("Deploy four") < result.output.index("deploy three")
+        assert result.output.index("deploy three") < result.output.index("Deploy one")
+
+    def test_search_blank_keyword_fails(self, runner: CliRunner) -> None:
+        result = runner.invoke(cli, ["search", "   "])
+
+        assert result.exit_code != 0
+        assert "关键词不能为空" in result.output
+        assert "Traceback" not in result.output
+
+    def test_search_no_results_message(self, runner: CliRunner, sample_tasks: list[dict]) -> None:
+        result = runner.invoke(cli, ["search", "missing"])
+
+        assert result.exit_code == 0
+        assert "没有找到匹配的任务" in result.output
+
+
 class TestCompleteCommand:
     def test_complete_marks_done(self, runner: CliRunner, sample_tasks: list[dict]) -> None:
         result = runner.invoke(cli, ["complete", "1"])
