@@ -30,6 +30,7 @@ TASKS_FILE = Path(__file__).resolve().with_name("tasks.json")
 
 PRIORITIES = ("low", "medium", "high")
 PRIORITY_COLOURS = {"low": "cyan", "medium": "yellow", "high": "red"}
+SEARCH_PRIORITY_ORDER = {"high": 0, "medium": 1, "low": 2}
 
 console = Console()
 
@@ -145,6 +146,44 @@ def find_task(tasks: list[dict], task_id: int) -> dict | None:
         The matching task dict, or None if not found.
     """
     return next((t for t in tasks if t["id"] == task_id), None)
+
+
+def render_tasks_table(tasks: list[dict]) -> None:
+    """Render tasks in the standard Rich table format."""
+    table = Table(show_header=True, header_style="bold blue", box=None, pad_edge=False)
+    table.add_column("ID", style="dim", width=4, justify="right")
+    table.add_column("Task", min_width=30)
+    table.add_column("Priority", width=8)
+    table.add_column("Due", width=12)
+    table.add_column("Tags", min_width=10)
+    table.add_column("Status", width=9)
+
+    for task in tasks:
+        task_name = Text(str(task["name"]))
+        if task.get("done"):
+            task_name.stylize("strike dim")
+
+        prio = task.get("priority", "medium")
+        prio_colour = PRIORITY_COLOURS.get(prio, "white")
+        priority_text = Text(prio, style=prio_colour)
+
+        tags_text = Text(", ".join(task.get("tags", [])) or "—", style="dim")
+        status_text = (
+            Text("✓ Done", style="green") if task.get("done") else Text("Pending", style="yellow")
+        )
+        if is_overdue(task):
+            status_text = Text("Overdue", style="bold red")
+
+        table.add_row(
+            str(task["id"]),
+            task_name,
+            priority_text,
+            format_due(task),
+            tags_text,
+            status_text,
+        )
+
+    console.print(table)
 
 
 # ---------------------------------------------------------------------------
@@ -266,40 +305,40 @@ def list_tasks(status: str, priority: str | None, tag: str | None, overdue: bool
         console.print("[yellow]No tasks match your filters.[/yellow]")
         return
 
-    table = Table(show_header=True, header_style="bold blue", box=None, pad_edge=False)
-    table.add_column("ID", style="dim", width=4, justify="right")
-    table.add_column("Task", min_width=30)
-    table.add_column("Priority", width=8)
-    table.add_column("Due", width=12)
-    table.add_column("Tags", min_width=10)
-    table.add_column("Status", width=9)
+    render_tasks_table(tasks)
 
-    for task in tasks:
-        task_name = Text(str(task["name"]))
-        if task.get("done"):
-            task_name.stylize("strike dim")
 
-        prio = task.get("priority", "medium")
-        prio_colour = PRIORITY_COLOURS.get(prio, "white")
-        priority_text = Text(prio, style=prio_colour)
+@cli.command()
+@click.argument("keyword")
+def search(keyword: str) -> None:
+    """Search tasks by keyword in name and description.
 
-        tags_text = Text(", ".join(task.get("tags", [])) or "—", style="dim")
-        status_text = (
-            Text("✓ Done", style="green") if task.get("done") else Text("Pending", style="yellow")
-        )
-        if is_overdue(task):
-            status_text = Text("Overdue", style="bold red")
+    Example:
+        python app.py search "关键词"
+    """
+    keyword = keyword.strip()
+    if not keyword:
+        console.print("[red]错误：关键词不能为空，请输入要搜索的内容。[/red]")
+        sys.exit(1)
 
-        table.add_row(
-            str(task["id"]),
-            task_name,
-            priority_text,
-            format_due(task),
-            tags_text,
-            status_text,
-        )
+    folded_keyword = keyword.casefold()
+    tasks = load_tasks()
+    matched_tasks = [
+        task
+        for task in tasks
+        if folded_keyword in str(task.get("name", "")).casefold()
+        or folded_keyword in str(task.get("description") or "").casefold()
+    ]
+    matched_tasks = sorted(
+        matched_tasks,
+        key=lambda task: SEARCH_PRIORITY_ORDER.get(task.get("priority"), len(SEARCH_PRIORITY_ORDER)),
+    )
 
-    console.print(table)
+    if not matched_tasks:
+        console.print("[yellow]未找到匹配的任务。[/yellow]")
+        return
+
+    render_tasks_table(matched_tasks)
 
 
 @cli.command()
