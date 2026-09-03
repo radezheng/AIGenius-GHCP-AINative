@@ -7,7 +7,18 @@ from pathlib import Path
 import pytest
 from click.testing import CliRunner
 
-from app import add, cli, complete, delete, edit, is_overdue, list_tasks, load_tasks, save_tasks, stats
+from app import (
+    add,
+    cli,
+    complete,
+    delete,
+    edit,
+    is_overdue,
+    list_tasks,
+    load_tasks,
+    save_tasks,
+    stats,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -262,3 +273,127 @@ class TestStatsCommand:
         result = runner.invoke(cli, ["stats"])
         assert result.exit_code == 0
         assert "3" in result.output  # total
+
+
+class TestSearchCommand:
+    def test_search_matches_chinese_keyword_in_name(self, runner: CliRunner, sample_tasks: list[dict]) -> None:
+        tasks = load_tasks()
+        tasks.append(
+            {
+                "id": 4,
+                "name": "发布上线",
+                "description": "",
+                "priority": "medium",
+                "tags": [],
+                "due_date": None,
+                "done": False,
+                "created_at": "2025-01-04T10:00:00",
+            }
+        )
+        save_tasks(tasks)
+
+        result = runner.invoke(cli, ["search", "发布"])
+        assert result.exit_code == 0
+        assert "发布上线" in result.output
+
+    def test_search_matches_description(self, runner: CliRunner, sample_tasks: list[dict]) -> None:
+        result = runner.invoke(cli, ["search", "release pipeline"])
+        assert result.exit_code == 0
+        assert "Deploy to production" in result.output
+
+    def test_search_is_case_insensitive_for_english(
+        self, runner: CliRunner, sample_tasks: list[dict]
+    ) -> None:
+        result = runner.invoke(cli, ["search", "DEPLOY"])
+        assert result.exit_code == 0
+        assert "Deploy to production" in result.output
+
+    def test_search_sorts_by_priority_stably(self, runner: CliRunner, sample_tasks: list[dict]) -> None:
+        tasks = load_tasks()
+        tasks.extend(
+            [
+                {
+                    "id": 4,
+                    "name": "Common alpha",
+                    "description": "",
+                    "priority": "high",
+                    "tags": [],
+                    "due_date": None,
+                    "done": False,
+                    "created_at": "2025-01-04T10:00:00",
+                },
+                {
+                    "id": 5,
+                    "name": "Common beta",
+                    "description": "",
+                    "priority": "medium",
+                    "tags": [],
+                    "due_date": None,
+                    "done": False,
+                    "created_at": "2025-01-05T10:00:00",
+                },
+                {
+                    "id": 6,
+                    "name": "Common gamma",
+                    "description": "",
+                    "priority": "low",
+                    "tags": [],
+                    "due_date": None,
+                    "done": False,
+                    "created_at": "2025-01-06T10:00:00",
+                },
+                {
+                    "id": 7,
+                    "name": "Common delta",
+                    "description": "",
+                    "priority": "high",
+                    "tags": [],
+                    "due_date": None,
+                    "done": False,
+                    "created_at": "2025-01-07T10:00:00",
+                },
+            ]
+        )
+        save_tasks(tasks)
+
+        result = runner.invoke(cli, ["search", "common"])
+        assert result.exit_code == 0
+        assert result.output.index("Common alpha") < result.output.index("Common delta")
+        assert result.output.index("Common delta") < result.output.index("Common beta")
+        assert result.output.index("Common beta") < result.output.index("Common gamma")
+
+    def test_search_rejects_whitespace_keyword(self, runner: CliRunner) -> None:
+        result = runner.invoke(cli, ["search", "   "])
+        assert result.exit_code != 0
+        assert "关键词不能为空" in result.output
+
+    def test_search_no_result_message(self, runner: CliRunner, sample_tasks: list[dict]) -> None:
+        result = runner.invoke(cli, ["search", "不存在的关键词"])
+        assert result.exit_code == 0
+        assert "未找到包含该关键词的任务" in result.output
+
+    def test_search_handles_null_description(self, runner: CliRunner, sample_tasks: list[dict]) -> None:
+        tasks = load_tasks()
+        tasks.append(
+            {
+                "id": 4,
+                "name": "Null description task",
+                "description": None,
+                "priority": "low",
+                "tags": [],
+                "due_date": None,
+                "done": False,
+                "created_at": "2025-01-04T10:00:00",
+            }
+        )
+        save_tasks(tasks)
+
+        result = runner.invoke(cli, ["search", "null"])
+        assert result.exit_code == 0
+        assert "Null description task" in result.output
+
+    def test_search_help_includes_description_and_example(self, runner: CliRunner) -> None:
+        result = runner.invoke(cli, ["search", "--help"])
+        assert result.exit_code == 0
+        assert "搜索任务名称或描述中的关键词" in result.output
+        assert 'python app.py search "发布"' in result.output
