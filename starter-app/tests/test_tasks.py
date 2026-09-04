@@ -178,6 +178,151 @@ class TestListCommand:
         assert "No tasks match" in result.output
 
 
+class TestSearchCommand:
+    def test_search_matches_chinese_name(self, runner: CliRunner, isolated_tasks_file: Path) -> None:
+        tasks = [
+            {
+                "id": 1,
+                "name": "准备中文演示",
+                "description": "",
+                "priority": "medium",
+                "tags": [],
+                "due_date": None,
+                "done": False,
+                "created_at": "2025-01-01T09:00:00",
+            }
+        ]
+        save_tasks(tasks)
+
+        result = runner.invoke(cli, ["search", "中文"])
+
+        assert result.exit_code == 0
+        assert "准备中文演示" in result.output
+
+    def test_search_matches_description(self, runner: CliRunner, sample_tasks: list[dict]) -> None:
+        result = runner.invoke(cli, ["search", "release"])
+
+        assert result.exit_code == 0
+        assert "Deploy to production" in result.output
+        assert "Buy groceries" not in result.output
+
+    def test_search_is_case_insensitive_for_english(
+        self, runner: CliRunner, sample_tasks: list[dict]
+    ) -> None:
+        result = runner.invoke(cli, ["search", "DEPLOY"])
+
+        assert result.exit_code == 0
+        assert "Deploy to production" in result.output
+
+    def test_search_sorts_by_priority_stably(
+        self, runner: CliRunner, isolated_tasks_file: Path
+    ) -> None:
+        tasks = [
+            {
+                "id": 1,
+                "name": "project low",
+                "description": "",
+                "priority": "low",
+                "tags": [],
+                "due_date": None,
+                "done": False,
+                "created_at": "2025-01-01T09:00:00",
+            },
+            {
+                "id": 2,
+                "name": "project high first",
+                "description": "",
+                "priority": "high",
+                "tags": [],
+                "due_date": None,
+                "done": False,
+                "created_at": "2025-01-02T09:00:00",
+            },
+            {
+                "id": 3,
+                "name": "project medium",
+                "description": "",
+                "priority": "medium",
+                "tags": [],
+                "due_date": None,
+                "done": False,
+                "created_at": "2025-01-03T09:00:00",
+            },
+            {
+                "id": 4,
+                "name": "project high second",
+                "description": "",
+                "priority": "high",
+                "tags": [],
+                "due_date": None,
+                "done": False,
+                "created_at": "2025-01-04T09:00:00",
+            },
+        ]
+        save_tasks(tasks)
+
+        result = runner.invoke(cli, ["search", "project"])
+
+        assert result.exit_code == 0
+        assert result.output.find("project high first") < result.output.find("project high second")
+        assert result.output.find("project high second") < result.output.find("project medium")
+        assert result.output.find("project medium") < result.output.find("project low")
+
+    def test_search_blank_keyword_fails_without_traceback(
+        self, runner: CliRunner, sample_tasks: list[dict]
+    ) -> None:
+        result = runner.invoke(cli, ["search", "   "])
+
+        assert result.exit_code != 0
+        assert "请输入搜索关键词" in result.output
+        assert "Traceback" not in result.output
+
+    def test_search_no_results_message(self, runner: CliRunner, sample_tasks: list[dict]) -> None:
+        result = runner.invoke(cli, ["search", "不存在"])
+
+        assert result.exit_code == 0
+        assert "未找到包含关键词" in result.output
+
+    def test_search_handles_missing_or_null_description(
+        self, runner: CliRunner, isolated_tasks_file: Path
+    ) -> None:
+        tasks = [
+            {
+                "id": 1,
+                "name": "legacy task",
+                "priority": "low",
+                "tags": [],
+                "due_date": None,
+                "done": False,
+                "created_at": "2025-01-01T09:00:00",
+            },
+            {
+                "id": 2,
+                "name": "modern task",
+                "description": None,
+                "priority": "high",
+                "tags": [],
+                "due_date": None,
+                "done": False,
+                "created_at": "2025-01-02T09:00:00",
+            },
+        ]
+        save_tasks(tasks)
+
+        result = runner.invoke(cli, ["search", "task"])
+
+        assert result.exit_code == 0
+        assert "legacy task" in result.output
+        assert "modern task" in result.output
+
+    def test_search_help_includes_description_and_example(self, runner: CliRunner) -> None:
+        result = runner.invoke(cli, ["search", "--help"])
+
+        assert result.exit_code == 0
+        assert "Search tasks by keyword" in result.output
+        assert 'python app.py search "关键词"' in result.output
+
+
 class TestCompleteCommand:
     def test_complete_marks_done(self, runner: CliRunner, sample_tasks: list[dict]) -> None:
         result = runner.invoke(cli, ["complete", "1"])
