@@ -199,6 +199,28 @@ class TestSearchCommand:
         assert result.exit_code == 0
         assert "准备中文演示" in result.output
 
+    def test_search_matches_chinese_description_only(
+        self, runner: CliRunner, isolated_tasks_file: Path
+    ) -> None:
+        tasks = [
+            {
+                "id": 1,
+                "name": "Prepare demo",
+                "description": "整理中文资料",
+                "priority": "medium",
+                "tags": [],
+                "due_date": None,
+                "done": False,
+                "created_at": "2025-01-01T09:00:00",
+            }
+        ]
+        save_tasks(tasks)
+
+        result = runner.invoke(cli, ["search", "中文"])
+
+        assert result.exit_code == 0
+        assert "Prepare demo" in result.output
+
     def test_search_matches_description(self, runner: CliRunner, sample_tasks: list[dict]) -> None:
         result = runner.invoke(cli, ["search", "release"])
 
